@@ -1,4 +1,6 @@
 qsort:
-	nvcc -arch=sm_50 -lcurand -rdc=true quicksort_thrust.cu -o qsort.o	
+	nvcc -arch=sm_50 -std=c++11 -lcurand -rdc=true quicksort_thrust.cu -o qsort.o	
 cor:
-	nvcc -arch=sm_50 -lcublas correlation.cu -o cor.o
+	nvcc -arch=sm_30 -std=c++11 -lcublas correlation.cu -o cor.o
+clean:
+	rm *.o	
