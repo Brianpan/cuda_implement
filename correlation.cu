@@ -4,6 +4,7 @@
 #include <math.h>
 
 #include <thrust/functional.h>
+#include <thrust/transform.h>
 #include <thrust/device_ptr.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
@@ -66,6 +67,21 @@ __global__ void cuAverage(float *matrix, const float *avg, int row, int col){
 // 	return;
 // }
 
+__global__ void cuDivideSS(float *ans, float *ss, int row){
+	int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx >= ROWS*ROWS){
+		return;
+	}
+	const int x_idx = idx % row;
+	const int y_idx = idx / row;
+
+	float denomitor_x = ss[x_idx*row + x_idx];
+	float denomitor_y = ss[y_idx*row + y_idx];
+	ans[idx] = ss[idx]/sqrtf(denomitor_x*denomitor_y);
+
+	return;
+}
+
 int IDX2F(int i, int j, int ld){ 
 	return (j)*(ld)+(i); 
 }
@@ -89,17 +105,26 @@ void matrix_mul(float *ans, const float *a, const float *b, const int m, const i
 	return;
 }
 
+struct divide_val{
+	int divideVal;
+	divide_val(int _divideVal) : divideVal(_divideVal){}
+	__host__ __device__ float operator()(const float val){
+		return val/divideVal;
+	}
+};
 int main(int argc, char **argv){
 	float *h_m = (float *)malloc(sizeof(float)*ROWS*COLUMNS);
 
-	for(int row = 0; row < ROWS ; row++){
-		for(int col = 0 ; col < COLUMNS; col++){
-			// h_m[MIDX(row, col, COLUMNS)] = (float) (row*COLUMNS + col);
-			// printf("%d: %f\n", MIDX(row, col, COLUMNS), h_m[MIDX(row, col, COLUMNS)]);
-			h_m[IDX2F(row, col, ROWS)] = (float) (row*COLUMNS + col);
-			printf("%d : %f \n", IDX2F(row, col, ROWS), h_m[IDX2F(row, col, ROWS)]);
-		}
-	}
+	// for(int row = 0; row < ROWS ; row++){
+	// 	for(int col = 0 ; col < COLUMNS; col++){
+	// 		// h_m[MIDX(row, col, COLUMNS)] = (float) (row*COLUMNS + col);
+	// 		// printf("%d: %f\n", MIDX(row, col, COLUMNS), h_m[MIDX(row, col, COLUMNS)]);
+	// 		h_m[IDX2F(row, col, ROWS)] = (float) (row*COLUMNS + col);
+	// 		printf("%d : %f \n", IDX2F(row, col, ROWS), h_m[IDX2F(row, col, ROWS)]);
+	// 	}
+	// }
+	float h_m2[10] = {0.3, 0.4, 0.1, 0.7, 0.5, 0.6, 0.2, 0.8, 0.9, 1.3};
+	memcpy(h_m, h_m2, sizeof(float)*10);
 	float *d_m, *d_s_m, *ans_m, *d_avg;
 
 	cudaMalloc(&d_m, sizeof(float)*ROWS*COLUMNS);
@@ -119,13 +144,24 @@ int main(int argc, char **argv){
 
 	thrust::copy(d_ptr, d_ptr + ROWS*COLUMNS, std::ostream_iterator<float>(std::cout, "\n"));
 	// call cublas
+	// columned-based
 	matrix_mul(d_s_m, d_m, d_m, ROWS, COLUMNS, ROWS);
 	
 	printf("======\n");
-	thrust::device_ptr<float> d_ptr2(d_s_m);
-	thrust::copy(d_ptr2, d_ptr2+ROWS*ROWS, std::ostream_iterator<float>(std::cout, "\n"));
 	
-	//
+	// divide by 1/n-1
+	thrust::device_ptr<float> d_ptr2(d_s_m);
+	thrust::transform(d_ptr2, d_ptr2+ROWS*ROWS, d_ptr2, divide_val(COLUMNS-1));
+	// thrust::copy(d_ptr2, d_ptr2+ROWS*ROWS, std::ostream_iterator<float>(std::cout, "\n"));
+	
+	// do pairwise divide
+	cuDivideSS<<<(ROWS*ROWS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(ans_m, d_s_m, ROWS);
+	thrust::device_ptr<float> d_aptr(ans_m);
+
+	thrust::copy(d_aptr, d_aptr+ROWS*ROWS, std::ostream_iterator<float>(std::cout, "\n"));
+
+
+	// free memory
 	cudaFree(d_m);
 	cudaFree(d_s_m);
 	cudaFree(ans_m);
