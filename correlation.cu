@@ -14,44 +14,33 @@
 #define ROWS 2
 #define COLUMNS 5 
 
-// __global__ void cuComputeAvg(float *avg, float *matrix, int row, int col){
-// 	int idx = blockDim.x*blockIdx.x +threadIdx.x;
-// 	if(idx >= row){
-// 		return;
-// 	}
-// 	float sum = 0;
-// 	for(int i = 0; i< row; i++){
-// 		sum += matrix[idx+ i*col];
-// 	}
-
-// 	avg[idx] = sum/row;
-
-// 	return;
-// }
-
 __global__ void cuComputeAvg(float *avg, float *matrix, int row, int col){
 	int idx = blockDim.x*blockIdx.x +threadIdx.x;
 	if(idx >= row){
 		return;
 	}
 	float sum = 0;
-	for(int i = 0; i< col; i++){
-		sum += matrix[idx*col + i];
+	for(int i = 0; i< row; i++){
+		sum += matrix[idx+ i*col];
 	}
 
-	avg[idx] = sum/col;
+	avg[idx] = sum/row;
 
 	return;
 }
 
-// __global__ void cuAverage(float *matrix, const float *avg, int row, int col){
-// 	int idx = blockDim.x * blockIdx.x + threadIdx.x;
-// 	if(idx >= row*col){
+// __global__ void cuComputeAvg(float *avg, float *matrix, int row, int col){
+// 	int idx = blockDim.x*blockIdx.x +threadIdx.x;
+// 	if(idx >= row){
 // 		return;
 // 	}
-// 	int data_id = idx % col;
-// 	//minus (n-1)
-// 	matrix[idx] = (matrix[idx] - avg[data_id]);
+// 	float sum = 0;
+// 	for(int i = 0; i< col; i++){
+// 		sum += matrix[idx*col + i];
+// 	}
+
+// 	avg[idx] = sum/col;
+
 // 	return;
 // }
 
@@ -60,11 +49,22 @@ __global__ void cuAverage(float *matrix, const float *avg, int row, int col){
 	if(idx >= row*col){
 		return;
 	}
-	int data_id = idx/col;
-	//minus avg
+	int data_id = idx % col;
+	//minus (n-1)
 	matrix[idx] = (matrix[idx] - avg[data_id]);
 	return;
 }
+
+// __global__ void cuAverage(float *matrix, const float *avg, int row, int col){
+// 	int idx = blockDim.x * blockIdx.x + threadIdx.x;
+// 	if(idx >= row*col){
+// 		return;
+// 	}
+// 	int data_id = idx/col;
+// 	//minus avg
+// 	matrix[idx] = (matrix[idx] - avg[data_id]);
+// 	return;
+// }
 
 int IDX2F(int i, int j, int ld){ 
 	return (j)*(ld)+(i); 
@@ -94,8 +94,10 @@ int main(int argc, char **argv){
 
 	for(int row = 0; row < ROWS ; row++){
 		for(int col = 0 ; col < COLUMNS; col++){
-			h_m[MIDX(row, col, COLUMNS)] = (float) (row*COLUMNS + col);
-			printf("%d: %f\n", MIDX(row, col, COLUMNS), h_m[MIDX(row, col, COLUMNS)]);
+			// h_m[MIDX(row, col, COLUMNS)] = (float) (row*COLUMNS + col);
+			// printf("%d: %f\n", MIDX(row, col, COLUMNS), h_m[MIDX(row, col, COLUMNS)]);
+			h_m[IDX2F(row, col, ROWS)] = (float) (row*COLUMNS + col);
+			printf("%d : %f \n", IDX2F(row, col, ROWS), h_m[IDX2F(row, col, ROWS)]);
 		}
 	}
 	float *d_m, *d_s_m, *ans_m, *d_avg;
@@ -107,16 +109,17 @@ int main(int argc, char **argv){
 	cudaMalloc(&d_avg, sizeof(float)*ROWS);
 	
 	// // prepare and substract mean, divide (n-1)
-	cuComputeAvg<<<(ROWS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(d_avg, d_m, ROWS, COLUMNS);
+	// cuComputeAvg<<<(ROWS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(d_avg, d_m, ROWS, COLUMNS);
+	cuComputeAvg<<<(ROWS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(d_avg, d_m, COLUMNS, ROWS);
 
-	cuAverage<<<(ROWS*COLUMNS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(d_m, d_avg, ROWS, COLUMNS);
-	
+	// cuAverage<<<(ROWS*COLUMNS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(d_m, d_avg, ROWS, COLUMNS);
+	cuAverage<<<(ROWS*COLUMNS+BLKSIZE-1)/BLKSIZE, BLKSIZE>>>(d_m, d_avg, COLUMNS, ROWS);
+
 	thrust::device_ptr<float> d_ptr(d_m);
 
 	thrust::copy(d_ptr, d_ptr + ROWS*COLUMNS, std::ostream_iterator<float>(std::cout, "\n"));
 	// call cublas
-	float *t_d_m = d_m;
-	matrix_mul(d_s_m, d_m, t_d_m, ROWS, COLUMNS, ROWS);
+	matrix_mul(d_s_m, d_m, d_m, ROWS, COLUMNS, ROWS);
 	
 	printf("======\n");
 	thrust::device_ptr<float> d_ptr2(d_s_m);
